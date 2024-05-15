@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from Evtx.Evtx import Evtx
 from datetime import datetime
 from regipy.registry import RegistryHive
+from regipy.utils import convert_wintime
 
 SEARCH_PATH = fr"\Software\Microsoft\Cryptography\FIDO"
 
@@ -73,7 +74,13 @@ def read_evtx(file_path, report_folder):
     reading = False
     event_list = []
 
-    with Evtx(file_path) as evtx:
+    try:
+        evtx = Evtx(file_path)
+    except Exception as e:
+        logfunc(f'Failed to open file {file_path} with error: {str(e)}')
+        return
+
+    with evtx:
         for record in evtx.records():
 
             soup = BeautifulSoup(record.xml(), 'xml')
@@ -150,24 +157,24 @@ def read_evtx(file_path, report_folder):
                                 event.set_browser_path(data_value.text)
                                 event.set_browser(os.path.splitext(os.path.basename(event.browserPath))[0].capitalize())
 
-        if len(event_list) > 0:
-            report = ArtifactHtmlReport('Passkeys - Event Log')
-            report.start_artifact_report(report_folder, 'Passkeys - Event Log')
-            report.add_script()
-            data_headers = ('userId', 'transaction_id', 'type', 'browser', 'browserPath', 'website', 'timestamp', 'computerName','device', 'result')
+    if len(event_list) > 0:
+        report = ArtifactHtmlReport('Passkeys - Event Log')
+        report.start_artifact_report(report_folder, 'Passkeys - Event Log')
+        report.add_script()
+        data_headers = ('userId', 'transaction_id', 'type', 'browser', 'browserPath', 'website', 'timestamp', 'computerName','device', 'result')
 
-            report.write_artifact_data_table(data_headers, event_list, file_path)
-            report.end_artifact_report()
+        report.write_artifact_data_table(data_headers, event_list, file_path)
+        report.end_artifact_report()
 
-            tsvname = f'Passkeys - Event Log'
-            tsv(report_folder, data_headers, event_list, tsvname)
-        else:
-            logfunc('Passkeys - Event Log data available')
+        tsvname = f'Passkeys - Event Log'
+        tsv(report_folder, data_headers, event_list, tsvname)
+    else:
+        logfunc('Passkeys - Event Log data available')
 
 def read_registry(file_path, report_folder):
     reg = RegistryHive(file_path)
     fido_list = {}
-    linked_devices = []  # [[<user_id>, <device_name>, <device_data>, <isCorrupted>], ...]
+    linked_devices = []  # [[<user_id>, <device_name>, <device_data>, <last_modified>, <isCorrupted>], ...]
 
     for sk in reg.get_key(SEARCH_PATH).iter_subkeys():
         fido_list[sk.name] = None
@@ -184,7 +191,7 @@ def read_registry(file_path, report_folder):
 
     for fido in fido_list:
         # print(fido)  # User ID
-        linked_device = [fido, None, None, None]  # [<user_id>, <device_name>, <device_data>, <isCorrupted>]
+        linked_device = [fido, None, None, None, None]  # [<user_id>, <device_name>, <device_data>, <last_modified>, <isCorrupted>]
 
         device_element = []
         for device in fido_list[fido]:
@@ -194,14 +201,17 @@ def read_registry(file_path, report_folder):
             path = rf'\Software\Microsoft\Cryptography\FIDO'
             path += f'\\' + str(fido) + rf'\LinkedDevices'
             path += f'\\' + str(device)
-            data = reg.get_key(path).get_values()
-            for i in data:
+            data = reg.get_key(path)
+
+            for i in data.get_values():
                 # print("\t\t" + str(i))
                 if i.name == "Name":
                     linked_device[1] = i.value
                 if i.name == "Data" and i.value_type == 'REG_BINARY':
                     linked_device[2] = i.value.hex().upper()
-                linked_device[3] = i.is_corrupted
+                linked_device[4] = i.is_corrupted
+
+            linked_device[3] = convert_wintime(data.header.last_modified, as_json=False)
 
             linked_devices.append(linked_device.copy())
 
@@ -209,7 +219,7 @@ def read_registry(file_path, report_folder):
         report = ArtifactHtmlReport('Passkeys - registry')
         report.start_artifact_report(report_folder, 'Passkeys - registry')
         report.add_script()
-        data_headers = ('User ID', 'Device Name', 'Device Data', 'is Corrupted')
+        data_headers = ('User ID', 'Device Name', 'Device Data', 'Last Modified', 'is Corrupted')
 
         report.write_artifact_data_table(data_headers, linked_devices, file_path)
         report.end_artifact_report()

@@ -47,7 +47,7 @@ tosearch = {
     'windowsPhotos':('Windows Photos', ('*/AppData/Local/Packages/Microsoft.Windows.Photos_*/LocalState/MediaDb.v1.sqlite')),
     'windowsStickyNotes':('Windows StickyNotes', ('*/AppData/Local/Packages/Microsoft.MicrosoftStickyNotes_*/LocalState/plum.sqlite')),
     'windowsYourPhone':('Windows YourPhone', ('*/AppData/Local/Packages/Microsoft.YourPhone_*/LocalCache/Indexed/*/System/Database/*')),
-    'passkeys':('Passkey Logs', ('*/Windows/System32/winevt/Logs/Microsoft-Windows-WebAuthN%4Operational.evtx', '*/Users/Pedro Shan/Desktop/ipl_6s/projeto informatico/Passkeys/windows-registry/2024-03-28_00.00/NTUSER.DAT'))
+    'passkeys':('Passkey Logs', ('*/Windows/System32/winevt/Logs/Microsoft-Windows-WebAuthN%4Operational.evtx', '*/Windows/ServiceProfiles/NetworkService/NTUSER.DAT'))
 
 }
 slash = '\\' if is_platform_windows() else '/'
