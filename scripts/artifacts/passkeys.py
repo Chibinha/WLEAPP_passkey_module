@@ -174,7 +174,7 @@ def read_evtx(file_path, report_folder):
 def read_registry(file_path, report_folder):
     reg = RegistryHive(file_path)
     fido_list = {}
-    linked_devices = []  # [[<user_id>, <device_name>, <device_data>, <last_modified>, <isCorrupted>], ...]
+    linked_devices = []  # [[<user_id>, <device_name>, <last_modified>, <isCorrupted>, <device_data>], ...]
 
     for sk in reg.get_key(SEARCH_PATH).iter_subkeys():
         fido_list[sk.name] = None
@@ -191,7 +191,7 @@ def read_registry(file_path, report_folder):
 
     for fido in fido_list:
         # print(fido)  # User ID
-        linked_device = [fido, None, None, None, None]  # [<user_id>, <device_name>, <device_data>, <last_modified>, <isCorrupted>]
+        linked_device = [fido, None, None, None, None]  # [<user_id>, <device_name>, <last_modified>, <isCorrupted>, <device_data>]
 
         device_element = []
         for device in fido_list[fido]:
@@ -208,10 +208,10 @@ def read_registry(file_path, report_folder):
                 if i.name == "Name":
                     linked_device[1] = i.value
                 if i.name == "Data" and i.value_type == 'REG_BINARY':
-                    linked_device[2] = i.value.hex().upper()
-                linked_device[4] = i.is_corrupted
+                    linked_device[4] = i.value.hex().upper()
+                linked_device[3] = i.is_corrupted
 
-            linked_device[3] = convert_wintime(data.header.last_modified, as_json=False)
+            linked_device[2] = convert_wintime(data.header.last_modified, as_json=False)
 
             linked_devices.append(linked_device.copy())
 
