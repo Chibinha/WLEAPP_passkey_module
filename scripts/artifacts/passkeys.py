@@ -71,18 +71,11 @@ def get_passkeys(files_found, report_folder, seeker, wrap_text):
 
 #files_found são os ficheiros a ler que previamente eram o "evtx_file_path"
 def read_evtx(file_path, report_folder):
-    reading = False
     event_list = []
-
-    try:
-        evtx = Evtx(file_path)
-    except Exception as e:
-        logfunc(f'Failed to open file {file_path} with error: {str(e)}')
-        return
-
-    with evtx:
+    logfunc("-Reading EVTX File-")
+    with Evtx(file_path) as evtx:
+        event = None
         for record in evtx.records():
-
             soup = BeautifulSoup(record.xml(), 'xml')
 
             event_id = soup.find("EventID")
@@ -101,6 +94,8 @@ def read_evtx(file_path, report_folder):
             # 1008: Connection failed           #
             #####################################
 
+            
+
             if event_id in ["1000", "1003"]:
                 event = PasskeyLog()
 
@@ -108,7 +103,7 @@ def read_evtx(file_path, report_folder):
                 if transaction_id:
                     event.set_transaction_id(transaction_id.text)
 
-                event.set_timestamp(record.timestamp())
+                event.set_timestamp(record.timestamp().strftime("%Y-%m-%d %H:%M:%S"))
 
                 computer_name = soup.find("System")
                 computer_name = computer_name.find("Computer")
@@ -121,41 +116,42 @@ def read_evtx(file_path, report_folder):
                     event.set_user_id(user_id)
 
                 event.set_event_type("Authentication" if event_id == "1003" else "Registration")
-                reading = True
-            elif event_id in ["1001", "1004"]:
-                reading = False
+            elif event and event_id in ["1001", "1004"]:
                 event.set_event_conclusion("Success")
-                event_list.append((event.userId,event.transactionId,event.type,event.browser,event.browserPath,event.website,event.timestamp,event.computerName,event.device,event.result))
-            elif event_id in ["1002", "1005"]:
-                reading = False
-                event.set_device("N/A")
+                event_list.append((event.userId, event.transactionId, event.type, event.browser, event.browserPath,
+                                   event.website, event.timestamp, event.computerName, event.device, event.result))
+                event = None
+                continue
+            elif event and event_id in ["1002", "1005"]:
                 event.set_event_conclusion("Incomplete")
-                event_list.append((event.userId,event.transactionId,event.type,event.browser,event.browserPath,event.website,event.timestamp,event.computerName,event.device,event.result))
+                event_list.append((event.userId, event.transactionId, event.type, event.browser, event.browserPath,
+                                   event.website, event.timestamp, event.computerName, event.device, event.result))
+                event = None
+                continue
 
-            if reading and event_id == "2104" or event_id == "2106" or event_id == "1101" or event_id == "1103":
-
+            if event and (event_id == "2104" or event_id == "2106" or event_id == "1101" or event_id == "1103"):
                 event_data = soup.find("EventData")
 
                 if event_data:
-
-                    device_path = event_data.find("Data", attrs={'Name': 'DevicePath'})
+                    device = event_data.find("Data", attrs={'Name': 'DevicePath'})
                     rp_id = event_data.find("Data", attrs={'Name': 'RpId'})
                     image_name = event_data.find("Data", attrs={'Name': 'Name'})
 
-                    if device_path:
-                        event.set_device(device_path.text)
-                        if device_path.text == "":
-                            event.device = event.computerName
-
-                    elif rp_id:
+                    if rp_id:
                         event.set_website(rp_id.text)
-
                     elif image_name:
                         if image_name.text == "ImageName":
                             data_value = event_data.find("Data", attrs={'Name': 'Value'})
                             if data_value:
                                 event.set_browser_path(data_value.text)
                                 event.set_browser(os.path.splitext(os.path.basename(event.browserPath))[0].capitalize())
+
+                    if device:
+                        if device.text:
+                            event.set_device(device.text)
+                        else:
+                            event.set_device(computer_name.text + ' (This Device)')
+
 
     if len(event_list) > 0:
         report = ArtifactHtmlReport('Passkeys - Event Log')
@@ -175,45 +171,49 @@ def read_registry(file_path, report_folder):
     reg = RegistryHive(file_path)
     fido_list = {}
     linked_devices = []  # [[<user_id>, <device_name>, <last_modified>, <isCorrupted>, <device_data>], ...]
+    logfunc('-Reading Registry File-')
 
-    for sk in reg.get_key(SEARCH_PATH).iter_subkeys():
-        fido_list[sk.name] = None
+    try:
+        for sk in reg.get_key(SEARCH_PATH).iter_subkeys():
+            fido_list[sk.name] = None
 
-    for fido_sk in fido_list:
-        device_list = {}
+        for fido_sk in fido_list:
+            device_list = {}
 
-        path = rf'\Software\Microsoft\Cryptography\FIDO'
-        path += f'\\' + str(fido_sk) + rf'\LinkedDevices'
-        for device_sk in reg.get_key(path).iter_subkeys():
-            device_list[device_sk.name] = None
+            path = SEARCH_PATH
+            path += f'\\' + str(fido_sk) + rf'\LinkedDevices'
+            for device_sk in reg.get_key(path).iter_subkeys():
+                device_list[device_sk.name] = None
 
-        fido_list[fido_sk] = device_list.copy()
+            fido_list[fido_sk] = device_list.copy()
+    except:
+        logfunc('---No associated devices were found---')
+        return
 
-    for fido in fido_list:
-        # print(fido)  # User ID
-        linked_device = [fido, None, None, None, None]  # [<user_id>, <device_name>, <last_modified>, <isCorrupted>, <device_data>]
+    try:
+        for fido in fido_list:
+            linked_device = [fido, None, None, None, None]  # [<user_id>, <device_name>, <last_modified>, <is_corrupted>, <device_data>]
 
-        device_element = []
-        for device in fido_list[fido]:
-            # print("\t" + device)
-            device_element.append(device)
+            for device in fido_list[fido]:
 
-            path = rf'\Software\Microsoft\Cryptography\FIDO'
-            path += f'\\' + str(fido) + rf'\LinkedDevices'
-            path += f'\\' + str(device)
-            data = reg.get_key(path)
+                path = SEARCH_PATH
+                path += f'\\' + str(fido) + rf'\LinkedDevices'
+                path += f'\\' + str(device)
+                data = reg.get_key(path)
 
-            for i in data.get_values():
-                # print("\t\t" + str(i))
-                if i.name == "Name":
-                    linked_device[1] = i.value
-                if i.name == "Data" and i.value_type == 'REG_BINARY':
-                    linked_device[4] = i.value.hex().upper()
-                linked_device[3] = i.is_corrupted
+                for i in data.get_values():
+                    if i.name == "Name":
+                        linked_device[1] = i.value
+                    if i.name == "Data" and i.value_type == 'REG_BINARY':
+                        linked_device[4] = i.value.hex().upper()
+                    linked_device[3] = i.is_corrupted
 
-            linked_device[2] = convert_wintime(data.header.last_modified, as_json=False)
+                linked_device[2] = convert_wintime(data.header.last_modified, as_json=False).strftime("%Y-%m-%d %H:%M:%S")
 
-            linked_devices.append(linked_device.copy())
+                linked_devices.append(linked_device.copy())
+    except:
+        logfunc('---Error extracting data---')
+        return
 
     if len(linked_devices) > 0:
         report = ArtifactHtmlReport('Passkeys - registry')

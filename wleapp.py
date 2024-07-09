@@ -18,6 +18,7 @@ def main():
     parser.add_argument('-i', '--input_path', required=False, action="store", help='Path to input file/folder')
     parser.add_argument('-p', '--artifact_paths', required=False, action="store_true", help='Text file list of artifact paths')
     parser.add_argument('-w', '--wrap_text', required=False, action="store_false", help='do not wrap text for output of data files')
+    parser.add_argument('-m', '--modules', nargs='+', required=False, action="store", help=f'list the modules you would like to run, {[key for key, value in tosearch.items()]}')
         
     args = parser.parse_args()
     
@@ -68,6 +69,20 @@ def main():
         if not os.path.exists(output_path):
             parser.error('OUTPUT folder does not exist! Run the program again.')
             return  
+        
+        search_list = {} # hardcode usagestatsVersion as first item
+        if args.modules == None:
+            print('-All modules selected-')
+            search_list = tosearch
+        else:
+            print('Module Selection:')
+            for x in args.modules:
+                
+                if (x in tosearch):
+                    print('-' + x)
+                    search_list[x] = tosearch[x]
+                else:
+                    print('[Warning]' + x + ' - Module not found')
 
         # File system extractions can contain paths > 260 char, which causes problems
         # This fixes the problem by prefixing \\?\ on each windows path.
@@ -77,7 +92,7 @@ def main():
 
         out_params = OutputParameters(output_path)
 
-        crunch_artifacts(tosearch, extracttype, input_path, out_params, 1, wrap_text)
+        crunch_artifacts(search_list, extracttype, input_path, out_params, 1, wrap_text)
 
 def crunch_artifacts(search_list, extracttype, input_path, out_params, ratio, wrap_text):
     start = process_time()
